@@ -8,14 +8,14 @@ Database::Database()
 	try
 	{	
 		pqxx::work W(C);
-		query = "CREATE DATABASE YandexLavka";
+		query = "CREATE DATABASE DB";
 		W.exec(query);
 		W.commit();
 	}
-	catch (std::exception& e) {}; // in case yandexlavka exists an error will be thrown
+	catch (std::exception& e) {}; // in case DB exists an error will be thrown
 
 	C.close();
-	C = pqxx::connection("dbname = yandexlavka user = postgres password = 123 hostaddr = 127.0.0.1 port = 5432");
+	C = pqxx::connection("dbname = DB user = postgres password = 123 hostaddr = 127.0.0.1 port = 5432");
 
 	query = "CREATE TABLE IF NOT EXISTS couriers(courier_id SERIAL PRIMARY KEY, courier_type VARCHAR(7), regions JSON, working_hours JSON); \
 				CREATE TABLE IF NOT EXISTS orders(order_id SERIAL PRIMARY KEY, weight FLOAT, regions INT, delivery_hours JSON, cost INT, completed_time varchar(100));";																\
