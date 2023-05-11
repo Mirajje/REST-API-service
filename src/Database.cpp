@@ -8,17 +8,18 @@ Database::Database()
 	try
 	{	
 		pqxx::work W(C);
-		query = "CREATE DATABASE YandexLavka";
+		query = "CREATE DATABASE db";
 		W.exec(query);
 		W.commit();
 	}
-	catch (std::exception& e) {}; // in case yandexlavka exists an error will be thrown
+	catch (std::exception& e) {}; // in case db exists an error will be thrown
 
 	C.close();
-	C = pqxx::connection("dbname = yandexlavka user = postgres password = 123 hostaddr = 127.0.0.1 port = 5432");
+	C = pqxx::connection("dbname = db user = postgres password = 123 hostaddr = 127.0.0.1 port = 5432");
 
 	query = "CREATE TABLE IF NOT EXISTS couriers(courier_id SERIAL PRIMARY KEY, courier_type VARCHAR(7), regions JSON, working_hours JSON); \
-				CREATE TABLE IF NOT EXISTS orders(order_id SERIAL PRIMARY KEY, weight FLOAT, regions INT, delivery_hours JSON, cost INT, completed_time varchar(100));";																\
+			 CREATE TABLE IF NOT EXISTS orders(order_id SERIAL PRIMARY KEY, weight FLOAT, regions INT, delivery_hours JSON, cost INT, completed_time varchar(100)); \
+		     CREATE TABLE IF NOT EXISTS order_courier(order_id INT REFERENCES orders(order_id) PRIMARY KEY, courier_id INT REFERENCES couriers(courier_id), date date, completed bool); ";
 
 	pqxx::work W(C);
 	W.exec(query);
@@ -102,10 +103,10 @@ crow::json::wvalue Database::get_orders(int limit, int offset)
 		output[i]["order_id"] = it[0].as<int>();
 		output[i]["weight"] = it[1].as<float>();
 		output[i]["regions"] = it[2].as<int>();
-		output[i]["delivery_hours"] = crow::json::load(it[3].c_str());
+		output[i]["delivery_hours"] = crow::json::load(it[3].as<std::string>());
 		output[i]["cost"] = it[4].as<int>();
 		if (!it[5].is_null())
-			output[i]["completed_time"] = it[5].as<std::string>();
+			output[i]["completed_time"] = crow::json::load(it[5].as<std::string>());
 
 		++i;
 	}
@@ -135,3 +136,94 @@ crow::json::wvalue Database::post_orders(const crow::json::rvalue& new_data)
 	return output;
 }
 
+crow::json::wvalue Database::orders_complete(const crow::json::rvalue& data)
+{
+	crow::json::wvalue output;
+
+	for (int i = 0; i < data["complete_info"].size(); ++i)
+	{
+		std::string courier_id = crow::json::wvalue(data["complete_info"][i]["courier_id"]).dump();
+		std::string order_id = crow::json::wvalue(data["complete_info"][i]["order_id"]).dump();
+
+		std::string query = "SELECT * FROM order_courier WHERE order_id = " + order_id + " AND courier_id = " + courier_id + ";";
+
+		pqxx::nontransaction N(C);
+		pqxx::result res(N.exec(query));
+
+		if (res.empty())
+		{
+			return output;
+		}
+	}
+
+	for (int i = 0; i < data["complete_info"].size(); ++i)
+	{
+		std::string courier_id = crow::json::wvalue(data["complete_info"][i]["courier_id"]).dump();
+		std::string order_id = crow::json::wvalue(data["complete_info"][i]["order_id"]).dump();
+		std::string complete_time = crow::json::wvalue(data["complete_info"][i]["complete_time"]).dump();
+
+		std::string query = "SELECT weight, regions, delivery_hours, cost FROM order_courier JOIN orders ON order_courier.order_id = orders.order_id \
+							 WHERE order_courier.order_id = " + order_id + " AND order_courier.courier_id = " + courier_id + ";";
+
+		pqxx::nontransaction N(C);
+		pqxx::result res(N.exec(query));
+		N.abort();
+
+		auto elem = res.begin();
+
+		output[i]["order_id"] = std::stoi(order_id);
+		output[i]["weight"] = elem[0].as<double>();
+		output[i]["regions"] = elem[1].as<int>();
+		output[i]["delivery_hours"] = crow::json::load(elem[2].as<std::string>());
+		output[i]["cost"] = elem[3].as<int>();
+		output[i]["completed_time"] = crow::json::load(complete_time);
+		
+		pqxx::work W(C);
+
+		query = "UPDATE order_courier SET completed = true WHERE order_id = " + order_id + " AND courier_id = " + courier_id + ";";
+		W.exec(query);
+
+		query = "UPDATE orders SET completed_time = '" + complete_time + "' WHERE order_id = " + order_id + ";";
+		W.exec(query);
+
+		W.commit();
+	}
+
+	return output;
+}
+
+crow::json::wvalue Database::courier_meta_info(int courier_id, const std::string& start_date, const std::string& end_date)
+{
+	crow::json::wvalue output = get_couriers(1, courier_id - 1)["couriers"][0];
+
+	pqxx::nontransaction N(C);
+	std::string query = "SELECT SUM(cost) as raw_earnings, COUNT(*) / (EXTRACT (EPOCH FROM AGE('" + start_date + "', '" + end_date + "')) / 3600) as rating FROM order_courier JOIN orders ON orders.order_id = order_courier.order_id WHERE order_courier.courier_id = " + std::to_string(courier_id) + " AND completed = true AND date > '" + start_date + "' AND date < '" + end_date + "';";
+
+	pqxx::result res(N.exec(query));
+	auto elem = res.begin();
+
+	std::unordered_map<std::string, int> earning_coef = { {"\"FOOT\"", 2}, {"\"AUTO\"", 4}, {"\"BIKE\"", 3} };
+	std::unordered_map<std::string, int> rating_coef  = { {"\"FOOT\"", 3}, {"\"AUTO\"", 1}, {"\"BIKE\"", 2} };
+
+	if (elem == res.end())
+	{
+		std::string courier_type = crow::json::wvalue(output["courier_type"]).dump();
+		output["earnings"] = elem[0].as<int>() * earning_coef[courier_type];
+		output["rating"] = (int) (std::abs(elem[1].as<double>()) * earning_coef[courier_type]);
+	}
+
+	return output;
+}
+
+crow::json::wvalue Database::couriers_assignments(const std::string& date, int courier_id)
+{
+	crow::json::wvalue output;
+
+	/*pqxx::nontransaction N(C);
+	std::string query;
+
+	if (courier_id == -1)
+		query = "SELECT courier_id, "*/
+
+	return output;
+}

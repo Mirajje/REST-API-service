@@ -44,7 +44,7 @@ int main(int argc, char* argv[])
     Database db;
      
     crow::SimpleApp app;
-    app.loglevel(crow::LogLevel::Warning);
+    app.loglevel(crow::LogLevel::Warning); 
 
     crow::json::wvalue json;
 
@@ -59,8 +59,7 @@ int main(int argc, char* argv[])
                 crow::json::wvalue output;
                 try
                 {
-                    crow::json::rvalue body = crow::json::load(req.body);
-                    output = std::move(db.post_couriers(body));
+                    output = std::move(db.post_couriers(crow::json::load(req.body)));
 
                     return crow::response(200, output);
                 }
@@ -141,8 +140,7 @@ int main(int argc, char* argv[])
                 crow::json::wvalue output;
                 try 
                 {
-                    crow::json::rvalue body = crow::json::load(req.body);
-                    output = std::move(db.post_orders(body));
+                    output = std::move(db.post_orders(crow::json::load(req.body)));
 
                     return crow::response(200, output);
                 }
@@ -212,6 +210,84 @@ int main(int argc, char* argv[])
 
             }
         );
+
+    CROW_ROUTE(app, "/orders/complete")
+        .methods(crow::HTTPMethod::POST)
+        ([&db, &rateLimiter](const crow::request& req)
+            {
+                if (!rateLimiter[req.url].allow_request()) return crow::response(429);
+
+                crow::json::wvalue output; 
+                try 
+                {
+                    output = std::move(db.orders_complete(crow::json::load(req.body)));
+
+                    if (output.dump() == "null")
+                    {
+                        output = crow::json::load("{}");
+                        return crow::response(400, output);
+                    }
+
+                    return crow::response(200, output);
+                }
+                catch (const std::exception& error)
+                {
+                    output = crow::json::load("{}");
+                    return crow::response(400, output);
+                }
+
+            }
+    );
+
+    CROW_ROUTE(app, "/couriers/meta-info/<int>")
+        .methods(crow::HTTPMethod::GET)
+        ([&db, &rateLimiter](const crow::request& req, int courier_id)
+            {
+                if (!rateLimiter[req.url].allow_request()) return crow::response(429);
+
+                crow::json::wvalue output;
+                try
+                {
+                    std::string start_date = req.url_params.get("startDate");
+                    std::string end_date = req.url_params.get("endDate");
+
+                    output = db.courier_meta_info(courier_id, start_date, end_date);
+
+                    return crow::response(200, output);
+                }
+                catch (const std::exception& error)
+                {
+                    output = crow::json::load("{}");
+                    return crow::response(400, output);
+                }
+
+            }
+    );
+
+    CROW_ROUTE(app, "/couriers/assignments") // doesn't work
+        .methods(crow::HTTPMethod::GET)
+        ([&db, &rateLimiter](const crow::request& req)
+            {
+                if (!rateLimiter[req.url].allow_request()) return crow::response(429);
+
+                crow::json::wvalue output;
+                try
+                {
+                    std::string date = req.url_params.get("date") == nullptr ? "current_date" : req.url_params.get("date");
+                    int courier_id = req.url_params.get("courier_id") == nullptr ? -1 : std::stoi(req.url_params.get("courier_id"));
+
+                    output = db.couriers_assignments(date, courier_id);
+
+                    return crow::response(200, output);
+                }
+                catch (const std::exception& error)
+                {
+                    output = crow::json::load("{}");
+                    return crow::response(400, output);
+                }
+
+            }
+    );
     
     app.validate();
     app.port(18080).multithreaded().run_async();
