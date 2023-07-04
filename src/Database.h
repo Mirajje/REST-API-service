@@ -1,5 +1,5 @@
-#ifndef DATABASE
-#define DATABASE
+#ifndef DATABASE_H
+#define DATABASE_H
 
 #include <pqxx/pqxx>
 #include <crow.h>
@@ -7,8 +7,8 @@
 class Database
 {
 public:
-	Database();
-	~Database();
+	Database();  // connects to yandexlavka database and creates necessary tables
+	~Database() = default;
 
 	crow::json::wvalue post_couriers(const crow::json::rvalue& new_data);
 	crow::json::wvalue get_couriers(int limit, int offset);
